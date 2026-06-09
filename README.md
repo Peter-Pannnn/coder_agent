@@ -104,6 +104,8 @@ Agent 应该可以调用工具完成真实任务，而不仅仅是聊天。
 - `list_files`: 查看目录结构。
 - `read_file`: 读取文件内容。
 - `search_code`: 全局搜索关键字。
+- `index_repository`: 构建代码仓库索引，支持目录或具体文件路径输入，并将代码片段写入 Chroma。
+- `retrieve_context`: 从 Chroma 索引中检索相关代码上下文。
 - `inspect_symbol`: 查询函数、类或变量定义。
 - `run_tests`: 运行测试。
 - `write_patch`: 生成或应用补丁。
@@ -184,6 +186,8 @@ Repository
 - 展示项目目录树和技术栈摘要。
 - 支持自然语言提问。
 - 使用关键词检索 + Chroma 语义检索 + 文件读取回答问题。
+- 提供构建索引工具 `index_repository`，支持将仓库代码写入 Chroma。
+- 提供上下文检索工具 `retrieve_context`，支持从索引中召回相关代码片段。
 - 回答时给出引用文件路径。
 - 支持“解释某个文件/函数”。
 - 支持“帮我找某个功能在哪里实现”。
@@ -262,7 +266,6 @@ codebase-agent-assistant/
     tools/                     # 工具系统
     context/                   # 上下文工程
     prompt/                    # 提示词
-    indexing/                  # 仓库扫描和索引
     storage/                   # 本地存储
     cli/                       # 命令行入口
   tests/
@@ -273,10 +276,9 @@ codebase-agent-assistant/
 
 - `models/` 放核心数据结构，例如仓库信息、检索结果、代码片段、变更计划。
 - `agents/` 放 LangChain Agent 的具体实现，可以从单 Agent 起步，后续再拆出规划、审查、补丁 Agent。
-- `tools/` 放 Agent 可调用工具，例如读文件、搜索代码、运行测试、生成 patch。
+- `tools/` 放 Agent 可调用工具，例如读文件、搜索代码、构建 Chroma 索引、检索上下文、运行测试、生成 patch。
 - `context/` 放上下文工程逻辑，包括代码切块、检索结果排序、上下文压缩和短期记忆。
 - `prompt/` 统一管理提示词，避免提示词散落在业务代码里。
-- `indexing/` 负责扫描仓库、构建文本索引、写入 Chroma、维护 AST 或符号索引。
 - `storage/` 负责 SQLite、Chroma 等本地持久化。
 - `cli/` 是第一阶段主要交互入口，暂不开发 Web 前端。
 
@@ -285,15 +287,15 @@ codebase-agent-assistant/
 ### Phase 1: 可用原型
 
 - 实现本地仓库扫描。
-- 实现文件读取和代码搜索工具。
+- 实现文件读取、代码搜索、构建索引和上下文检索工具。
 - 使用 LangChain 接入大模型，支持基于检索结果回答问题。
-- 使用 Chroma 保存和检索代码片段。
+- 使用 `index_repository` 构建 Chroma 代码索引，并使用 `retrieve_context` 检索代码片段。
 - 输出引用文件路径。
 - 提供 CLI 入口。
 
 ### Phase 2: 索引增强
 
-- 完善 Chroma 向量检索。
+- 完善 Chroma 向量检索和索引构建策略。
 - 加入符号索引。
 - 缓存扫描结果。
 - 支持大型仓库的分块检索。

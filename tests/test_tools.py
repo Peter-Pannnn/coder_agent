@@ -82,7 +82,7 @@ def test_index_repository_empty_branch() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         empty_repo = Path(temp_dir) / "empty_repo"
         empty_repo.mkdir()
-        output = index_repository.invoke({"root_path": str(empty_repo)})
+        output = index_repository.invoke({"target_path": str(empty_repo)})
 
     print_tool_output("index_repository empty branch", output)
     assert_contains(output, "No indexable files found")
@@ -110,7 +110,7 @@ def test_chroma_local_integration_if_key_exists(repo_root: Path) -> None:
 
         index_output = index_repository.invoke(
             {
-                "root_path": str(repo_root),
+                "target_path": str(repo_root),
                 "storage_mode": "local",
                 "persist_directory": str(persist_dir),
                 "collection_name": collection_name,
@@ -120,7 +120,7 @@ def test_chroma_local_integration_if_key_exists(repo_root: Path) -> None:
         )
         print_tool_output("index_repository", index_output)
 
-        assert_contains(index_output, "Indexed repository")
+        assert_contains(index_output, "Indexed target")
         assert_contains(index_output, "Documents:")
 
         retrieve_output = retrieve_context.invoke(
@@ -149,7 +149,7 @@ def test_chroma_memory_integration_if_key_exists(repo_root: Path) -> None:
 
     index_output = index_repository.invoke(
         {
-            "root_path": str(repo_root),
+            "target_path": str(repo_root),
             "storage_mode": "memory",
             "collection_name": collection_name,
             "chunk_size": 500,
@@ -177,6 +177,46 @@ def test_chroma_memory_integration_if_key_exists(repo_root: Path) -> None:
 
     print("[ok] index_repository + retrieve_context Chroma memory integration")
 
+
+def test_index_single_file_if_key_exists(repo_root: Path) -> None:
+    if not os.getenv(ALI_TONGYI_API_KEY_OS_VAR_NAME):
+        print(f"[skip] Single file indexing requires {ALI_TONGYI_API_KEY_OS_VAR_NAME}")
+        return
+
+    target_file = repo_root / "src" / "tools" / "list_files.py"
+    collection_name = "tool_test_single_file_memory"
+
+    index_output = index_repository.invoke(
+        {
+            "target_path": str(target_file),
+            "storage_mode": "memory",
+            "collection_name": collection_name,
+            "chunk_size": 500,
+            "chunk_overlap": 50,
+        }
+    )
+    print_tool_output("index_repository single file", index_output)
+
+    assert_contains(index_output, "Indexed target")
+    assert_contains(index_output, "Target type: file")
+    assert_contains(index_output, "Documents:")
+
+    retrieve_output = retrieve_context.invoke(
+        {
+            "query": "Where is list_files defined?",
+            "storage_mode": "memory",
+            "collection_name": collection_name,
+            "k": 2,
+        }
+    )
+    print_tool_output("retrieve_context single file", retrieve_output)
+
+    assert_contains(retrieve_output, "list_files.py")
+    assert_contains(retrieve_output, "list_files")
+
+    print("[ok] index_repository supports single file input")
+
+
 def main() -> None:
     repo_root = PROJECT_ROOT
     print_tool_output("repo_root", repo_root)
@@ -189,12 +229,17 @@ def main() -> None:
     test_retrieve_context_missing_index()
     test_chroma_local_integration_if_key_exists(repo_root)
     test_chroma_memory_integration_if_key_exists(repo_root)
+    test_index_single_file_if_key_exists(repo_root)
 
     print("All tool tests completed.")
 
 
 if __name__ == "__main__":
     main()
+
+
+
+
 
 
 

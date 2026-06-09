@@ -7,7 +7,14 @@
 提示词接口统一从 `src.prompt` 导出：
 
 ```python
-from src.prompt import SYSTEM_PROMPT, get_system_message_prompt, get_chat_prompt
+from src.prompt import (
+    SYSTEM_PROMPT,
+    TOOL_ROUTING_PROMPT,
+    get_chat_prompt,
+    get_system_message_prompt,
+    get_tool_routing_chat_prompt,
+    get_tool_routing_message_prompt,
+)
 ```
 
 ## 文件说明
@@ -24,6 +31,18 @@ from src.prompt import SYSTEM_PROMPT, get_system_message_prompt, get_chat_prompt
 - 安全边界。
 - 回答格式。
 - 禁止行为。
+
+### tool_routing_prompt.py
+
+功能：定义工具路由提示词，用于让大模型先返回结构化工具调用决策，而不是直接回答用户问题。
+
+包含内容：
+
+- 可用仓库工具列表。
+- 是否需要使用工具的判断原则。
+- 工具选择优先级建议。
+- 严格 JSON 输出格式。
+- `intent`、`needs_tools`、`tools`、`confidence` 等字段约束。
 
 ## 接口说明
 
@@ -62,6 +81,39 @@ human: {input}
 - 可直接和模型通过 LCEL 组合：`prompt | model`。
 - 适合测试模型是否能按照系统提示词回答。
 
+### TOOL_ROUTING_PROMPT
+
+类型：字符串。
+
+用途：
+
+- 保存完整工具路由提示词文本。
+- 适合在 Agent 调用工具前，先请求模型判断是否需要工具以及候选工具列表。
+
+### get_tool_routing_message_prompt
+
+功能：返回 LangChain 的 `SystemMessagePromptTemplate`。
+
+用途：
+
+- 将工具路由规则作为系统消息注册到工具路由链中。
+
+### get_tool_routing_chat_prompt
+
+功能：返回工具路由专用的 `ChatPromptTemplate`。
+
+当前模板结构：
+
+```text
+system: TOOL_ROUTING_PROMPT
+human: {input}
+```
+
+用途：
+
+- 输入用户问题，要求模型只返回合法 JSON 决策。
+- 可作为 Agent Runner 的第一步，用于驱动后续工具选择。
+
 示例：
 
 ```python
@@ -76,9 +128,24 @@ response = chain.invoke({"input": "请解释这个项目的目标。"})
 print(response.content)
 ```
 
+工具路由示例：
+
+```python
+from src.models import get_ali_model_client
+from src.prompt import get_tool_routing_chat_prompt
+
+model = get_ali_model_client(temperature=0.0)
+prompt = get_tool_routing_chat_prompt()
+chain = prompt | model
+
+response = chain.invoke({"input": "配置加载在哪里实现？"})
+print(response.content)
+```
+
 ## 使用建议
 
 - 系统提示词负责稳定约束 Agent 行为。
+- 工具路由提示词负责在回答前生成结构化决策。
 - 任务提示词、规划提示词、审查提示词可以后续拆成独立文件。
 - 不建议把长提示词直接散落在 Agent 或工具代码中。
 - 修改提示词后，建议用测试脚本做一次最小模型调用验证。

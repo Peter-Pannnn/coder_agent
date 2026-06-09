@@ -13,6 +13,16 @@ from src.tools import list_files, read_file, search_code, index_repository, retr
 
 `REPOSITORY_TOOLS` 是当前默认工具集合，可直接注册给 LangChain Agent。
 
+## 工具分类
+
+| 工具 | 类型 | 主要用途 |
+| --- | --- | --- |
+| `list_files` | 仓库浏览工具 | 查看目录结构 |
+| `read_file` | 文件读取工具 | 读取文件内容或指定行范围 |
+| `search_code` | 关键词检索工具 | 精确搜索代码关键词 |
+| `index_repository` | 构建索引工具 | 扫描仓库、切分代码片段、写入 Chroma 索引 |
+| `retrieve_context` | 语义检索工具 | 从 Chroma 索引中检索相关代码上下文 |
+
 ## 工具列表
 
 ### list_files
@@ -75,21 +85,21 @@ from src.tools import list_files, read_file, search_code, index_repository, retr
 
 输出：匹配文件、行号、列号和对应代码行。
 
-### index_repository
+### index_repository 构建索引工具
 
 文件：`index_repository.py`
 
-功能：扫描仓库中的文本和代码文件，切分为代码片段，并写入 Chroma 向量数据库。
+功能：构建代码仓库索引。该工具支持输入目录或具体文件路径，会扫描目标中的文本和代码文件，切分为代码片段，并写入 Chroma 向量数据库。
 
 用途：
 
-- 为代码仓库构建语义检索索引。
+- 为代码仓库构建语义检索索引，是 Chroma 检索流程的前置步骤。
 - 支持后续通过自然语言查询相关代码片段。
 - 作为 RAG 问答流程的基础能力。
 
 主要参数：
 
-- `root_path`：要索引的仓库目录。
+- `target_path`：要索引的目录或具体文件路径。传入目录时会遍历目录下的可索引文件；传入文件时只索引该文件。
 - `storage_mode`：Chroma 存储模式，`local` 表示保存到本地，`memory` 表示仅保存在当前进程内存中，默认 `local`。
 - `persist_directory`：Chroma 本地持久化目录，默认 `src/storage/chroma`。
 - `collection_name`：Chroma collection 名称，默认 `codebase`。
@@ -99,7 +109,7 @@ from src.tools import list_files, read_file, search_code, index_repository, retr
 
 输出：索引摘要，包括存储模式、索引目录、collection、文档片段数量和跳过文件数量。
 
-注意：该工具会调用 embedding 模型，需要先设置 `DASHSCOPE_API_KEY`。
+注意：该工具会调用 embedding 模型，需要先设置 `DASHSCOPE_API_KEY`。构建完成后，可通过 `retrieve_context` 查询索引中的相关代码片段。
 
 ### retrieve_context
 
@@ -144,5 +154,6 @@ from src.tools import list_files, read_file, search_code, index_repository, retr
 - Chroma 本地/内存存储模式选择。
 
 `utils.py` 不是直接注册给 Agent 的工具，而是供其他工具复用的基础模块。
+
 
 
