@@ -31,24 +31,24 @@ TOOL_ROUTING_PROMPT = """
 
 JSON 结构必须符合：
 
-{
+{{
   "intent": "locate_code | explain_code | plan_change | run_tests | index_repository | answer_general | unknown",
   "needs_tools": true,
   "confidence": 0.0,
   "reason": "一句话说明为什么需要或不需要工具",
   "tools": [
-    {
+    {{
       "name": "list_files | read_file | search_code | index_repository | retrieve_context",
       "purpose": "说明调用该工具的目的",
       "priority": 1,
-      "suggested_input": {
+      "suggested_input": {{
         "key": "value"
-      }
-    }
+      }}
+    }}
   ],
   "answer_without_tools": false,
   "clarifying_question": ""
-}
+}}
 
 ## 字段约束
 
