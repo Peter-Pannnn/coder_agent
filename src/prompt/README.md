@@ -1,4 +1,4 @@
-﻿# prompt
+# prompt
 
 `prompt` 目录负责管理 Agent 使用的提示词模板。提示词通过 LangChain Prompt 组件封装，供 Agent、测试脚本和链式调用复用。
 
@@ -21,7 +21,7 @@ from src.prompt import (
 
 ### system_prompt.py
 
-功能：定义 Codebase Agent Assistant 的系统提示词，并提供 LangChain 包装接口。
+功能：定义 CoderAgent 的系统提示词，并提供 LangChain 包装接口。
 
 包含内容：
 

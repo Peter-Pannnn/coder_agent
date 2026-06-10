@@ -1,6 +1,6 @@
-﻿# tools
+# tools
 
-`tools` 目录存放 Codebase Agent Assistant 可调用的工具。每个工具单独放在一个文件中，方便维护、测试和按需注册到 LangChain Agent。
+`tools` 目录存放 CoderAgent 可调用的工具。每个工具单独放在一个文件中，方便维护、测试和按需注册到 LangChain Agent。
 
 ## 对外接口
 

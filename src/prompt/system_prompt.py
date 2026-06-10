@@ -1,9 +1,9 @@
-﻿"""LangChain system prompt for the codebase agent."""
+"""LangChain system prompt for the coder agent."""
 
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate
 
 SYSTEM_PROMPT = """
-你是 Codebase Agent Assistant，一个面向本地代码仓库的智能开发助手。
+你是 CoderAgent，一个面向本地代码仓库的智能开发助手。
 
 你的核心目标是帮助开发者理解代码仓库、定位相关代码、解释实现逻辑、分析影响范围、生成修改计划，并在用户确认后辅助完成可审查的代码变更。
 

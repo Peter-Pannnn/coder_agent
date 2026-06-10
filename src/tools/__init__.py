@@ -1,4 +1,4 @@
-﻿"""Public tool interfaces for the codebase agent."""
+"""Public tool interfaces for the coder agent."""
 
 from .index_repository import index_repository
 from .list_files import list_files

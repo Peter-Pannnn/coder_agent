@@ -2,6 +2,66 @@
 
 `agents` 目录存放 Agent 编排层代码，负责用 LangChain 把 prompt、模型和工具决策串起来。
 
+## CoderAgent
+
+`CoderAgent` 是主 Agent，负责统一编排用户请求。
+
+当前流程：
+
+```text
+user input
+  -> ToolRoutingAgent.route()
+  -> needs_tools == false
+      -> answer_chain
+      -> CoderAgentResult
+  -> needs_tools == true
+      -> ToolExecutionNotImplementedError
+```
+
+第一阶段只实现“不使用工具”的回答路径；工具执行路径后续再接入 `list_files`、`search_code`、`read_file` 等工具。
+
+示例：
+
+```python
+from src.agents import get_coder_agent
+
+agent = get_coder_agent()
+result = agent.run("temperature 是控制什么的？")
+
+print(result.answer)
+print(result.routing_decision.intent)
+```
+
+流式输出：
+
+```python
+from src.agents import get_coder_agent
+
+agent = get_coder_agent()
+
+for chunk in agent.stream("temperature 是控制什么的？"):
+    print(chunk, end="", flush=True)
+print()
+```
+
+如果需要调整模型温度：
+
+```python
+from src.agents import get_coder_agent
+
+agent = get_coder_agent(temperature=0.1)
+```
+
+`get_coder_agent()` 会创建一个模型 client，并将同一个 client 同时传给主回答链和 `ToolRoutingAgent`。
+
+回答链由 `answer_chain.py` 中的 `get_answer_chain()` 构建，默认结构为：
+
+```text
+get_chat_prompt() | model | StrOutputParser()
+```
+
+`CoderAgent` 本身只接收已经构建好的 `answer_chain`，不负责拼接 prompt、model 和 parser。
+
 ## ToolRoutingAgent
 
 `ToolRoutingAgent` 用于在真正调用仓库工具前，先让大模型输出结构化工具路由决策。

@@ -3,7 +3,7 @@
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate
 
 TOOL_ROUTING_PROMPT = """
-你是 Codebase Agent Assistant 的工具路由器。
+你是 CoderAgent 的工具路由器。
 
 你的任务不是直接回答用户问题，而是判断后续 Agent 是否需要调用仓库工具，以及应该优先调用哪些工具。
 
