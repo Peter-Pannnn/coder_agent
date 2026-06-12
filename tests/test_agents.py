@@ -20,7 +20,7 @@ from src.agents import ToolRoutingAgent, get_tool_routing_agent
 
 def main() -> None:
     agent = get_tool_routing_agent()
-    test_inputs = "请帮我找到项目中与用户登录相关的代码，并解释一下实现细节。"
+    test_inputs = "这个文件是干什么的？"
     decision = agent.route(test_inputs)
 
     print("Tool routing decision:")
