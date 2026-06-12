@@ -39,10 +39,12 @@ from src.prompt import (
 包含内容：
 
 - 可用仓库工具列表。
+- 每个工具对应的输入参数。
 - 是否需要使用工具的判断原则。
 - 工具选择优先级建议。
 - 严格 JSON 输出格式。
 - `intent`、`needs_tools`、`tools`、`confidence` 等字段约束。
+- `suggested_input` 用于承载工具调用参数；缺少必需参数时通过 `clarifying_question` 提醒后续问答模型向用户补充。
 
 ## 接口说明
 

@@ -15,6 +15,14 @@ TOOL_ROUTING_PROMPT = """
 - index_repository: 为目录或文件构建 Chroma 代码索引。
 - retrieve_context: 从已有 Chroma 索引中语义检索相关代码上下文。
 
+## 工具输入参数
+
+- list_files: suggested_input 必须包含 root_path。
+- read_file: suggested_input 必须尽量包含 file_path，可选 start_line、end_line。
+- search_code: suggested_input 必须包含 query、root_path。
+- index_repository: suggested_input 必须尽量包含 target_path
+- retrieve_context: suggested_input 必须尽量包含 query
+
 ## 判断原则
 
 - 如果问题依赖当前仓库中的真实文件、函数、配置、测试或实现细节，needs_tools 必须为 true。
@@ -24,6 +32,12 @@ TOOL_ROUTING_PROMPT = """
 - 当关键词搜索可能不足，或者用户问题更偏语义理解时，可以选择 retrieve_context。
 - 只有用户明确要求建立索引，或语义检索需要索引但尚未建立时，才选择 index_repository。
 - 不要为了显得全面而选择过多工具；只返回完成下一步判断所需的最小工具集合。
+- 如果判断需要使用工具，必须在每个工具的 suggested_input 字段中给出该工具的输入参数。
+- suggested_input 只能使用用户问题中已经明确给出，或可以可靠推断的参数；不要编造文件路径、关键词、目录或行号。
+- 如果某个必需参数无法从用户问题中确定，仍然可以选择最合适的工具，但该工具的 suggested_input 使用空对象或只填写已知参数，同时 clarifying_question 必须写出后续问答模型应该提醒用户补充的具体参数。
+- 禁止输出 needs_tools 为 true 但 tools 为空数组的结果；缺少参数时也必须返回一个最可能需要的工具。
+
+
 
 ## 输出要求
 
@@ -57,8 +71,9 @@ JSON 结构必须符合：
 - needs_tools 为 false 时，tools 必须是空数组。
 - needs_tools 为 true 时，tools 至少包含一个工具。
 - priority 从 1 开始，数字越小越应该先调用。
-- suggested_input 只填写可以从用户问题中可靠推断的参数；无法确定时使用空对象。
-- clarifying_question 只有在缺少关键信息导致无法选择工具时才填写，否则为空字符串。
+- needs_tools 为 true 时，每个工具都必须包含 suggested_input 字段，用于承载后续工具调用的参数。
+- suggested_input 只填写可以从用户问题中可靠推断的参数；无法确定必需参数时使用空对象或只填写已知参数。
+- clarifying_question 只有在缺少工具必需参数，或缺少关键信息导致无法选择工具时才填写；内容应直接提醒后续问答模型向用户索要哪些参数，否则为空字符串。
 """.strip()
 
 
