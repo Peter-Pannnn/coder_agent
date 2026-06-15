@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -38,6 +39,7 @@ class CoderAgentResult:
     answer: str
     routing_decision: ToolRoutingDecision
     tool_results: list[ToolExecutionResult] = field(default_factory=list)
+    routing_decisions: list[ToolRoutingDecision] = field(default_factory=list)
 
 
 class ToolExecutionNotImplementedError(NotImplementedError):
@@ -58,69 +60,109 @@ class CoderAgent:
         routing_agent: ToolRoutingAgent,
         answer_chain: Runnable,
         tools: dict[str, Any] | None = None,
+        max_tool_rounds: int = 3,
     ):
+        if max_tool_rounds < 1:
+            raise ValueError("max_tool_rounds must be at least 1.")
+
         self.routing_agent = routing_agent
         self.answer_chain = answer_chain
         self.tools = tools
+        self.max_tool_rounds = max_tool_rounds
 
     def run(self, user_input: str) -> CoderAgentResult:
         """Route the request, run tools when needed, and return the final answer."""
         self._validate_user_input(user_input)
 
-        routing_decision = self.routing_agent.route(user_input)
-        if routing_decision.needs_tools:
-            answer, tool_results = self._answer_with_tools(user_input, routing_decision)
-            return CoderAgentResult(
-                input=user_input,
-                answer=answer,
-                routing_decision=routing_decision,
-                tool_results=tool_results,
-            )
-
-        answer = self.answer_chain.invoke({"input": user_input})
+        routing_decisions, context, tool_results = self._route_until_ready(user_input)
+        answer = self.answer_chain.invoke(self._build_answer_input(user_input, context))
         return CoderAgentResult(
             input=user_input,
             answer=answer,
-            routing_decision=routing_decision,
+            routing_decision=routing_decisions[-1],
+            routing_decisions=routing_decisions,
+            tool_results=tool_results,
         )
 
     def stream(self, user_input: str) -> Iterator[str]:
         """Route the request, run tools when needed, and stream the final answer."""
         self._validate_user_input(user_input)
 
-        routing_decision = self.routing_agent.route(user_input)
-        print(routing_decision)
-
-        if routing_decision.needs_tools:
-            context, _ = self._prepare_tool_context(routing_decision)
-            yield from self.answer_chain.stream({"input": user_input, "context": context})
-            return
-
-        yield from self.answer_chain.stream({"input": user_input})
+        _, context, _ = self._route_until_ready(user_input)
+        yield from self.answer_chain.stream(self._build_answer_input(user_input, context))
 
     def _validate_user_input(self, user_input: str) -> None:
         if not isinstance(user_input, str) or not user_input.strip():
             raise ValueError("user_input must be a non-empty string.")
 
-    def _answer_with_tools(
+    def _route_until_ready(
         self,
         user_input: str,
-        routing_decision: ToolRoutingDecision,
-    ) -> tuple[str, list[ToolExecutionResult]]:
-        context, tool_results = self._prepare_tool_context(routing_decision)
-        answer = self.answer_chain.invoke({"input": user_input, "context": context})
-        return answer, tool_results
+    ) -> tuple[list[ToolRoutingDecision], str, list[ToolExecutionResult]]:
+        routing_decisions: list[ToolRoutingDecision] = []
+        tool_results: list[ToolExecutionResult] = []
+        executed_calls: set[str] = set()
+        context = ""
 
-    def _prepare_tool_context(
+        for round_index in range(1, self.max_tool_rounds + 1):
+            routing_input = self._build_routing_input(user_input, context, round_index, executed_calls)
+            routing_decision = self.routing_agent.route(routing_input)
+            routing_decisions.append(routing_decision)
+
+            if not routing_decision.needs_tools:
+                return routing_decisions, context, tool_results
+
+            missing_inputs = self._find_missing_inputs(routing_decision)
+            if missing_inputs:
+                context = self._build_clarifying_context(routing_decision, missing_inputs)
+                return routing_decisions, context, tool_results
+
+            new_tool_calls = self._select_new_tool_calls(routing_decision, executed_calls)
+            if not new_tool_calls:
+                context = self._build_duplicate_tool_context(routing_decision, tool_results)
+                return routing_decisions, context, tool_results
+
+            round_results = self._execute_tool_calls(new_tool_calls, executed_calls)
+            tool_results.extend(round_results)
+            context = self._build_tool_context(routing_decision, tool_results)
+
+        context = self._build_max_rounds_context(routing_decisions, tool_results)
+        return routing_decisions, context, tool_results
+
+    def _build_answer_input(self, user_input: str, context: str) -> dict[str, str]:
+        if context:
+            return {"input": user_input, "context": context}
+
+        return {"input": user_input}
+
+    def _build_routing_input(
         self,
-        routing_decision: ToolRoutingDecision,
-    ) -> tuple[str, list[ToolExecutionResult]]:
-        missing_inputs = self._find_missing_inputs(routing_decision)
-        if missing_inputs:
-            return self._build_clarifying_context(routing_decision, missing_inputs), []
+        user_input: str,
+        context: str,
+        round_index: int,
+        executed_calls: set[str],
+    ) -> str:
+        if not context:
+            return user_input
 
-        tool_results = self._execute_tools(routing_decision)
-        return self._build_tool_context(routing_decision, tool_results), tool_results
+        return "\n".join(
+            [
+                "用户原始问题：",
+                user_input,
+                "",
+                f"当前是第 {round_index} 轮工具路由。",
+                "",
+                "已获得的工具上下文：",
+                context,
+                "",
+                "已经执行过的工具调用签名：",
+                "\n".join(sorted(executed_calls)) if executed_calls else "无",
+                "",
+                "请判断是否还需要继续调用其他工具。",
+                "如果已有上下文足够回答用户原始问题，请返回 needs_tools=false。",
+                "如果还缺信息，只返回下一轮需要调用的工具，不要重复调用已经执行过的工具。",
+            ]
+        )
 
     def _find_missing_inputs(self, routing_decision: ToolRoutingDecision) -> list[str]:
         missing: list[str] = []
@@ -131,10 +173,26 @@ class CoderAgent:
                 missing.append(f"{tool_call.name}: {', '.join(missing_keys)}")
         return missing
 
-    def _execute_tools(self, routing_decision: ToolRoutingDecision) -> list[ToolExecutionResult]:
+    def _select_new_tool_calls(
+        self,
+        routing_decision: ToolRoutingDecision,
+        executed_calls: set[str],
+    ) -> list[ToolCallDecision]:
+        return [
+            tool_call
+            for tool_call in routing_decision.tools
+            if self._tool_call_key(tool_call) not in executed_calls
+        ]
+
+    def _execute_tool_calls(
+        self,
+        tool_calls: list[ToolCallDecision],
+        executed_calls: set[str],
+    ) -> list[ToolExecutionResult]:
         tools = self.tools if self.tools is not None else self._load_repository_tools()
         results: list[ToolExecutionResult] = []
-        for tool_call in routing_decision.tools:
+        for tool_call in tool_calls:
+            executed_calls.add(self._tool_call_key(tool_call))
             tool = tools.get(tool_call.name)
             if tool is None:
                 results.append(
@@ -149,6 +207,10 @@ class CoderAgent:
 
             results.append(self._invoke_tool(tool_call, tool))
         return results
+
+    def _tool_call_key(self, tool_call: ToolCallDecision) -> str:
+        input_text = json.dumps(tool_call.suggested_input, sort_keys=True, ensure_ascii=False)
+        return f"{tool_call.name}:{input_text}"
 
     def _invoke_tool(self, tool_call: ToolCallDecision, tool: Any) -> ToolExecutionResult:
         try:
@@ -221,6 +283,45 @@ class CoderAgent:
         )
         return "\n".join(blocks)
 
+    def _build_duplicate_tool_context(
+        self,
+        routing_decision: ToolRoutingDecision,
+        tool_results: list[ToolExecutionResult],
+    ) -> str:
+        context = self._build_tool_context(routing_decision, tool_results) if tool_results else ""
+        blocks = []
+        if context:
+            blocks.append(context)
+            blocks.append("")
+
+        blocks.extend(
+            [
+                "循环式工具路由已停止：路由器要求的工具调用都已经执行过。",
+                "回答要求：请基于已有工具结果回答用户问题；如果已有结果不足，请明确说明还缺少哪些信息，不要重复请求相同工具。",
+            ]
+        )
+        return "\n".join(blocks)
+
+    def _build_max_rounds_context(
+        self,
+        routing_decisions: list[ToolRoutingDecision],
+        tool_results: list[ToolExecutionResult],
+    ) -> str:
+        last_decision = routing_decisions[-1]
+        context = self._build_tool_context(last_decision, tool_results) if tool_results else ""
+        blocks = []
+        if context:
+            blocks.append(context)
+            blocks.append("")
+
+        blocks.extend(
+            [
+                f"循环式工具路由已达到最大轮数：{self.max_tool_rounds}。",
+                "回答要求：请基于目前已经获得的工具结果回答用户问题；如果信息仍不足，请说明还需要继续读取哪些文件或运行哪些检索。",
+            ]
+        )
+        return "\n".join(blocks)
+
     def _load_repository_tools(self) -> dict[str, Any]:
         from src.tools import REPOSITORY_TOOLS
 
@@ -231,6 +332,7 @@ def get_coder_agent(
     model: Any | None = None,
     temperature: float = 0.2,
     answer_chain: Runnable | None = None,
+    max_tool_rounds: int = 3,
 ) -> CoderAgent:
     """Create the main coder agent with one shared model client."""
     if model is None:
@@ -242,4 +344,8 @@ def get_coder_agent(
     if answer_chain is None:
         answer_chain = get_answer_chain(model=model)
 
-    return CoderAgent(routing_agent=routing_agent, answer_chain=answer_chain)
+    return CoderAgent(
+        routing_agent=routing_agent,
+        answer_chain=answer_chain,
+        max_tool_rounds=max_tool_rounds,
+    )

@@ -22,13 +22,17 @@ user input
       -> 参数完整
           -> 按 priority 顺序执行工具
           -> 将工具结果拼接为回答上下文
-          -> answer_chain 基于工具结果回答
+          -> 再次 ToolRoutingAgent.route(用户问题 + 已获得的工具上下文)
+          -> 循环直到 needs_tools == false、缺少参数、工具重复或达到 max_tool_rounds
+          -> answer_chain 基于累计工具结果回答
           -> CoderAgentResult
 ```
 
 工具执行路径会使用 `ToolRoutingDecision.tools[*].suggested_input` 作为工具入参。若路由结果选择了需要 `file_path`、`query`、`target_path` 等必要参数的工具，但用户没有提供对应参数，主 Agent 不会编造参数或直接调用工具，而是把 `clarifying_question` 交给回答链，让回答模型提示用户补充信息。
 
 目前主 Agent 支持执行 `src.tools.REPOSITORY_TOOLS` 中注册的工具，包括 `list_files`、`search_code`、`read_file`、`index_repository` 和 `retrieve_context`。工具结果会保存到 `CoderAgentResult.tool_results`，并通过回答 prompt 的 `context` 段传给最终回答链。
+
+循环式工具路由默认最多执行 3 轮，可以通过 `max_tool_rounds` 调整。每轮执行后，主 Agent 会把累计工具结果传回路由 Agent；如果路由 Agent 判断已有信息足够回答，会返回 `needs_tools=false` 并进入最终回答链。主 Agent 也会记录已经执行过的工具调用签名，避免重复调用同一个工具和相同参数。
 
 示例：
 
@@ -59,7 +63,7 @@ print()
 ```python
 from src.agents import get_coder_agent
 
-agent = get_coder_agent(temperature=0.1)
+agent = get_coder_agent(temperature=0.1, max_tool_rounds=4)
 ```
 
 `get_coder_agent()` 会创建一个模型 client，并将同一个 client 同时传给主回答链和 `ToolRoutingAgent`。
@@ -125,6 +129,7 @@ decision = agent.route("请解释 src/tools/list_files.py")
 - `input`: 用户原始输入。
 - `answer`: 最终回答文本。
 - `routing_decision`: 工具路由决策。
+- `routing_decisions`: 多轮工具路由的完整决策历史。
 - `tool_results`: 工具执行结果列表；没有调用工具时为空数组。
 
 ### ToolExecutionResult
