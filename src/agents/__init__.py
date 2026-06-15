@@ -5,6 +5,7 @@ from .main_agent import (
     CoderAgent,
     CoderAgentResult,
     ToolExecutionNotImplementedError,
+    ToolExecutionResult,
     get_coder_agent,
 )
 from .tool_routing_agent import (
@@ -21,6 +22,7 @@ __all__ = [
     "CoderAgentResult",
     "ToolCallDecision",
     "ToolExecutionNotImplementedError",
+    "ToolExecutionResult",
     "ToolRoutingAgent",
     "ToolRoutingDecision",
     "ToolRoutingDecisionError",

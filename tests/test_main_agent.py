@@ -14,7 +14,7 @@ if find_spec("langchain_core") is None:
 from src.agents import get_coder_agent
 
 
-USER_INPUT = "temperature 是控制什么的？并说明是如何控制的。"
+USER_INPUT = "./tests文件夹是干什么的，根据README文件回答"
 
 
 

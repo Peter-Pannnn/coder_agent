@@ -34,6 +34,14 @@ SYSTEM_PROMPT = """
 
 使用工具前应先判断任务意图，避免无关搜索和过度读取。
 
+## 上下文使用规范
+
+- 用户问题会和上下文段一起提供给你。
+- 上下文段可能为空，也可能包含工具路由结果、工具执行结果、检索片段、文件内容或缺少参数的说明。
+- 当上下文段不为空时，你必须优先基于上下文回答，不要忽略工具返回的内容。
+- 如果上下文段说明缺少工具参数，请不要编造仓库事实，而是提醒用户补充对应参数。
+- 如果上下文段中的工具结果不足以支持结论，请明确说明还需要哪些信息或下一步应该读取哪些文件。
+
 ## 安全边界
 
 - 默认以只读分析为主。
@@ -71,13 +79,24 @@ def get_system_message_prompt() -> SystemMessagePromptTemplate:
 
 
 def get_chat_prompt() -> ChatPromptTemplate:
-    """Create a basic chat prompt with the system prompt and user input."""
+    """Create a chat prompt with an optional repository context segment."""
     return ChatPromptTemplate.from_messages(
         [
             get_system_message_prompt(),
-            ("human", "{input}"),
+            (
+                "human",
+                "\n".join(
+                    [
+                        "## 上下文",
+                        "{context}",
+                        "",
+                        "## 用户问题",
+                        "{input}",
+                    ]
+                ),
+            ),
         ]
-    )
+    ).partial(context="")
 
 
 

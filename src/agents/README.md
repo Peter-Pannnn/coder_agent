@@ -15,10 +15,20 @@ user input
       -> answer_chain
       -> CoderAgentResult
   -> needs_tools == true
-      -> ToolExecutionNotImplementedError
+      -> 检查工具 suggested_input
+      -> 缺少必要参数
+          -> answer_chain 提醒用户补充参数
+          -> CoderAgentResult
+      -> 参数完整
+          -> 按 priority 顺序执行工具
+          -> 将工具结果拼接为回答上下文
+          -> answer_chain 基于工具结果回答
+          -> CoderAgentResult
 ```
 
-第一阶段只实现“不使用工具”的回答路径；工具执行路径后续再接入 `list_files`、`search_code`、`read_file` 等工具。
+工具执行路径会使用 `ToolRoutingDecision.tools[*].suggested_input` 作为工具入参。若路由结果选择了需要 `file_path`、`query`、`target_path` 等必要参数的工具，但用户没有提供对应参数，主 Agent 不会编造参数或直接调用工具，而是把 `clarifying_question` 交给回答链，让回答模型提示用户补充信息。
+
+目前主 Agent 支持执行 `src.tools.REPOSITORY_TOOLS` 中注册的工具，包括 `list_files`、`search_code`、`read_file`、`index_repository` 和 `retrieve_context`。工具结果会保存到 `CoderAgentResult.tool_results`，并通过回答 prompt 的 `context` 段传给最终回答链。
 
 示例：
 
@@ -59,6 +69,8 @@ agent = get_coder_agent(temperature=0.1)
 ```text
 get_chat_prompt() | model | StrOutputParser()
 ```
+
+`get_chat_prompt()` 会接收 `input` 和可选 `context`。没有工具结果时 `context` 为空；工具执行完成后，`CoderAgent` 会将路由原因、工具入参、工具输出或工具错误写入 `context`，再交给回答链生成最终答案。
 
 `CoderAgent` 本身只接收已经构建好的 `answer_chain`，不负责拼接 prompt、model 和 parser。
 
@@ -105,6 +117,24 @@ decision = agent.route("请解释 src/tools/list_files.py")
 ```
 
 ## 数据结构
+
+### CoderAgentResult
+
+字段：
+
+- `input`: 用户原始输入。
+- `answer`: 最终回答文本。
+- `routing_decision`: 工具路由决策。
+- `tool_results`: 工具执行结果列表；没有调用工具时为空数组。
+
+### ToolExecutionResult
+
+字段：
+
+- `name`: 工具名。
+- `input`: 实际传给工具的参数。
+- `output`: 工具返回文本。
+- `error`: 工具调用错误；成功时为空字符串。
 
 ### ToolRoutingDecision
 

@@ -28,6 +28,7 @@ from src.prompt import (
 - Agent 角色定位。
 - 工作原则。
 - 工具使用规范。
+- 上下文使用规范。
 - 安全边界。
 - 回答格式。
 - 禁止行为。
@@ -74,7 +75,12 @@ from src.prompt import (
 
 ```text
 system: SYSTEM_PROMPT
-human: {input}
+human:
+  ## 上下文
+  {context}
+
+  ## 用户问题
+  {input}
 ```
 
 用途：
@@ -82,6 +88,7 @@ human: {input}
 - 快速构建最小可用的模型调用链。
 - 可直接和模型通过 LCEL 组合：`prompt | model`。
 - 适合测试模型是否能按照系统提示词回答。
+- `context` 默认为空；工具执行后的结果、检索片段或缺少参数说明可以通过 `context` 传入。
 
 ### TOOL_ROUTING_PROMPT
 
@@ -127,6 +134,18 @@ prompt = get_chat_prompt()
 chain = prompt | model
 
 response = chain.invoke({"input": "请解释这个项目的目标。"})
+print(response.content)
+```
+
+带上下文示例：
+
+```python
+response = chain.invoke(
+    {
+        "input": "这个文件是干什么的？",
+        "context": "工具执行结果：read_file 返回了 src/agents/main_agent.py 的内容。",
+    }
+)
 print(response.content)
 ```
 
