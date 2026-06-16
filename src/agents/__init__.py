@@ -16,6 +16,7 @@ from .tool_routing_agent import (
     get_tool_routing_agent,
     parse_tool_routing_decision,
 )
+from src.memory import SQLiteShortTermMemory, ShortTermMemoryMessage
 
 __all__ = [
     "CoderAgent",
@@ -26,6 +27,8 @@ __all__ = [
     "ToolRoutingAgent",
     "ToolRoutingDecision",
     "ToolRoutingDecisionError",
+    "SQLiteShortTermMemory",
+    "ShortTermMemoryMessage",
     "get_answer_chain",
     "get_coder_agent",
     "get_tool_routing_agent",

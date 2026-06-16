@@ -78,6 +78,45 @@ get_chat_prompt() | model | StrOutputParser()
 
 `CoderAgent` 本身只接收已经构建好的 `answer_chain`，不负责拼接 prompt、model 和 parser。
 
+## SQLite 短期记忆
+
+`get_coder_agent()` 默认会创建 `SQLiteShortTermMemory`，把短期会话消息持久化到：
+
+```text
+src/storage/short_term_memory.sqlite3
+```
+
+该目录属于运行产物，已经被 `.gitignore` 忽略。
+
+默认记忆策略：
+
+- 最终回答链默认读取该 session 的全部历史消息。
+- 路由 Agent 读取最近 4 条历史消息，用于理解“继续”“这个文件”等指代。
+- 每次 `run()` 或 `stream()` 完成后，会追加一条用户消息和一条助手消息。
+
+可以通过参数调整：
+
+```python
+from src.agents import get_coder_agent
+
+agent = get_coder_agent(
+    session_id="demo",
+    answer_memory_messages=None,
+    routing_memory_messages=4,
+)
+```
+
+`answer_memory_messages=None` 表示最终回答链读取全部历史；传入整数时则只读取最近 N 条。
+
+如果需要指定数据库路径：
+
+```python
+from src.agents import SQLiteShortTermMemory, get_coder_agent
+
+memory = SQLiteShortTermMemory("src/storage/demo_memory.sqlite3")
+agent = get_coder_agent(memory=memory, session_id="demo")
+```
+
 ## ToolRoutingAgent
 
 `ToolRoutingAgent` 用于在真正调用仓库工具前，先让大模型输出结构化工具路由决策。

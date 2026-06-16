@@ -1,4 +1,4 @@
-﻿# storage
+# storage
 
 `storage` 目录用于存放项目运行过程中产生的本地持久化数据。
 
@@ -29,6 +29,16 @@ index_repository.invoke({
 
 如果使用 `memory` 模式，索引和检索必须发生在同一个 Python 进程中。
 
+## SQLite 短期记忆
+
+`CoderAgent` 默认会把会话短期记忆保存到：
+
+```text
+src/storage/short_term_memory.sqlite3
+```
+
+该 SQLite 数据库用于按 `session_id` 保存最近对话消息。主回答链默认读取该 session 的全部历史消息，工具路由默认读取最近 4 条历史消息。
+
 ## Git 规则
 
-本地 Chroma 数据属于运行产物，不应提交到 Git。默认目录已经加入 `.gitignore`。
+本地 Chroma 数据和 SQLite 记忆数据库都属于运行产物，不应提交到 Git。默认目录已经加入 `.gitignore`。

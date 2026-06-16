@@ -9,6 +9,8 @@ from typing import Any
 
 from langchain_core.runnables import Runnable
 
+from src.memory import SQLiteShortTermMemory
+
 from .answer_chain import get_answer_chain
 from .tool_routing_agent import ToolCallDecision, ToolRoutingAgent, ToolRoutingDecision, get_tool_routing_agent
 
@@ -61,21 +63,35 @@ class CoderAgent:
         answer_chain: Runnable,
         tools: dict[str, Any] | None = None,
         max_tool_rounds: int = 3,
+        memory: SQLiteShortTermMemory | None = None,
+        session_id: str = "default",
+        answer_memory_messages: int | None = None,
+        routing_memory_messages: int = 4,
     ):
         if max_tool_rounds < 1:
             raise ValueError("max_tool_rounds must be at least 1.")
+        if answer_memory_messages is not None and answer_memory_messages < 0:
+            raise ValueError("answer_memory_messages must be non-negative.")
+        if routing_memory_messages < 0:
+            raise ValueError("routing_memory_messages must be non-negative.")
 
         self.routing_agent = routing_agent
         self.answer_chain = answer_chain
         self.tools = tools
         self.max_tool_rounds = max_tool_rounds
+        self.memory = memory
+        self.session_id = session_id
+        self.answer_memory_messages = answer_memory_messages
+        self.routing_memory_messages = routing_memory_messages
 
     def run(self, user_input: str) -> CoderAgentResult:
         """Route the request, run tools when needed, and return the final answer."""
         self._validate_user_input(user_input)
 
+        answer_history = self._render_memory(self.answer_memory_messages)
         routing_decisions, context, tool_results = self._route_until_ready(user_input)
-        answer = self.answer_chain.invoke(self._build_answer_input(user_input, context))
+        answer = self.answer_chain.invoke(self._build_answer_input(user_input, context, answer_history))
+        self._remember_exchange(user_input, answer)
         return CoderAgentResult(
             input=user_input,
             answer=answer,
@@ -89,7 +105,13 @@ class CoderAgent:
         self._validate_user_input(user_input)
 
         _, context, _ = self._route_until_ready(user_input)
-        yield from self.answer_chain.stream(self._build_answer_input(user_input, context))
+        answer_history = self._render_memory(self.answer_memory_messages)
+        chunks: list[str] = []
+        for chunk in self.answer_chain.stream(self._build_answer_input(user_input, context, answer_history)):
+            chunks.append(chunk)
+            yield chunk
+
+        self._remember_exchange(user_input, "".join(chunks))
 
     def _validate_user_input(self, user_input: str) -> None:
         if not isinstance(user_input, str) or not user_input.strip():
@@ -103,9 +125,16 @@ class CoderAgent:
         tool_results: list[ToolExecutionResult] = []
         executed_calls: set[str] = set()
         context = ""
+        routing_history = self._render_memory(self.routing_memory_messages)
 
         for round_index in range(1, self.max_tool_rounds + 1):
-            routing_input = self._build_routing_input(user_input, context, round_index, executed_calls)
+            routing_input = self._build_routing_input(
+                user_input,
+                context,
+                round_index,
+                executed_calls,
+                routing_history,
+            )
             routing_decision = self.routing_agent.route(routing_input)
             routing_decisions.append(routing_decision)
 
@@ -129,11 +158,19 @@ class CoderAgent:
         context = self._build_max_rounds_context(routing_decisions, tool_results)
         return routing_decisions, context, tool_results
 
-    def _build_answer_input(self, user_input: str, context: str) -> dict[str, str]:
+    def _build_answer_input(
+        self,
+        user_input: str,
+        context: str,
+        history: str,
+    ) -> dict[str, str]:
+        answer_input = {"input": user_input}
+        if history:
+            answer_input["history"] = history
         if context:
-            return {"input": user_input, "context": context}
+            answer_input["context"] = context
 
-        return {"input": user_input}
+        return answer_input
 
     def _build_routing_input(
         self,
@@ -141,11 +178,26 @@ class CoderAgent:
         context: str,
         round_index: int,
         executed_calls: set[str],
+        history: str,
     ) -> str:
-        if not context:
+        if not context and not history:
             return user_input
 
-        return "\n".join(
+        blocks = []
+        if history:
+            blocks.extend(
+                [
+                    "历史对话：",
+                    history,
+                    "",
+                ]
+            )
+
+        if not context:
+            blocks.extend(["用户原始问题：", user_input])
+            return "\n".join(blocks)
+
+        blocks.extend(
             [
                 "用户原始问题：",
                 user_input,
@@ -163,6 +215,22 @@ class CoderAgent:
                 "如果还缺信息，只返回下一轮需要调用的工具，不要重复调用已经执行过的工具。",
             ]
         )
+        return "\n".join(blocks)
+
+    def _render_memory(self, limit: int | None) -> str:
+        if self.memory is None:
+            return ""
+        if limit is not None and limit <= 0:
+            return ""
+
+        return self.memory.render_recent(session_id=self.session_id, limit=limit)
+
+    def _remember_exchange(self, user_input: str, answer: str) -> None:
+        if self.memory is None:
+            return
+
+        self.memory.add_message(self.session_id, "user", user_input)
+        self.memory.add_message(self.session_id, "assistant", answer)
 
     def _find_missing_inputs(self, routing_decision: ToolRoutingDecision) -> list[str]:
         missing: list[str] = []
@@ -333,6 +401,10 @@ def get_coder_agent(
     temperature: float = 0.2,
     answer_chain: Runnable | None = None,
     max_tool_rounds: int = 3,
+    memory: SQLiteShortTermMemory | None = None,
+    session_id: str = "default",
+    answer_memory_messages: int | None = None,
+    routing_memory_messages: int = 4,
 ) -> CoderAgent:
     """Create the main coder agent with one shared model client."""
     if model is None:
@@ -343,9 +415,15 @@ def get_coder_agent(
     routing_agent = get_tool_routing_agent(model=model)
     if answer_chain is None:
         answer_chain = get_answer_chain(model=model)
+    if memory is None:
+        memory = SQLiteShortTermMemory()
 
     return CoderAgent(
         routing_agent=routing_agent,
         answer_chain=answer_chain,
         max_tool_rounds=max_tool_rounds,
+        memory=memory,
+        session_id=session_id,
+        answer_memory_messages=answer_memory_messages,
+        routing_memory_messages=routing_memory_messages,
     )
