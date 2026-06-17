@@ -10,7 +10,7 @@ from typing import Any
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import Runnable
 
-from src.memory import SQLiteShortTermMemory
+from src.memory import ChromaLongTermMemory, SQLiteShortTermMemory
 
 from .answer_chain import get_answer_chain
 from .tool_routing_agent import ToolCallDecision, ToolRoutingAgent, ToolRoutingDecision, get_tool_routing_agent
@@ -22,6 +22,18 @@ REQUIRED_TOOL_INPUTS: dict[str, tuple[str, ...]] = {
     "index_repository": ("target_path",),
     "retrieve_context": ("query",),
 }
+
+LONG_TERM_MEMORY_TRIGGERS = (
+    "请记住",
+    "记住",
+    "以后请",
+    "以后默认",
+    "默认用",
+    "我的偏好",
+    "我偏好",
+    "我的习惯",
+    "我习惯",
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +55,8 @@ class CoderAgentResult:
     routing_decision: ToolRoutingDecision
     tool_results: list[ToolExecutionResult] = field(default_factory=list)
     routing_decisions: list[ToolRoutingDecision] = field(default_factory=list)
+    long_term_memory_context: str = ""
+    long_term_memory_write: str = ""
 
 
 class ToolExecutionNotImplementedError(NotImplementedError):
@@ -65,9 +79,13 @@ class CoderAgent:
         tools: dict[str, Any] | None = None,
         max_tool_rounds: int = 3,
         memory: SQLiteShortTermMemory | None = None,
+        long_term_memory: ChromaLongTermMemory | None = None,
         session_id: str = "default",
+        user_id: str = "default",
         answer_memory_messages: int | None = None,
         routing_memory_messages: int = 4,
+        long_term_memory_k: int = 4,
+        auto_save_long_term_memory: bool = True,
     ):
         if max_tool_rounds < 1:
             raise ValueError("max_tool_rounds must be at least 1.")
@@ -75,23 +93,38 @@ class CoderAgent:
             raise ValueError("answer_memory_messages must be non-negative.")
         if routing_memory_messages < 0:
             raise ValueError("routing_memory_messages must be non-negative.")
+        if long_term_memory_k < 0:
+            raise ValueError("long_term_memory_k must be non-negative.")
+        if not user_id.strip():
+            raise ValueError("user_id must be a non-empty string.")
 
         self.routing_agent = routing_agent
         self.answer_chain = answer_chain
         self.tools = tools
         self.max_tool_rounds = max_tool_rounds
         self.memory = memory
+        self.long_term_memory = long_term_memory
         self.session_id = session_id
+        self.user_id = user_id
         self.answer_memory_messages = answer_memory_messages
         self.routing_memory_messages = routing_memory_messages
+        self.long_term_memory_k = long_term_memory_k
+        self.auto_save_long_term_memory = auto_save_long_term_memory
 
     def run(self, user_input: str) -> CoderAgentResult:
         """Route the request, run tools when needed, and return the final answer."""
         self._validate_user_input(user_input)
 
         answer_history = self._load_memory_messages(self.answer_memory_messages)
+        long_term_memory_write = self._maybe_store_long_term_memory(user_input)
+        long_term_memory_context = self._render_long_term_memory_context(user_input)
         routing_decisions, context, tool_results = self._route_until_ready(user_input)
-        answer = self.answer_chain.invoke(self._build_answer_input(user_input, context, answer_history))
+        answer_context = self._build_answer_context(
+            tool_context=context,
+            long_term_memory_context=long_term_memory_context,
+            long_term_memory_write=long_term_memory_write,
+        )
+        answer = self.answer_chain.invoke(self._build_answer_input(user_input, answer_context, answer_history))
         self._remember_exchange(user_input, answer)
         return CoderAgentResult(
             input=user_input,
@@ -99,20 +132,55 @@ class CoderAgent:
             routing_decision=routing_decisions[-1],
             routing_decisions=routing_decisions,
             tool_results=tool_results,
+            long_term_memory_context=long_term_memory_context,
+            long_term_memory_write=long_term_memory_write,
         )
 
     def stream(self, user_input: str) -> Iterator[str]:
         """Route the request, run tools when needed, and stream the final answer."""
         self._validate_user_input(user_input)
 
+        long_term_memory_write = self._maybe_store_long_term_memory(user_input)
+        long_term_memory_context = self._render_long_term_memory_context(user_input)
         _, context, _ = self._route_until_ready(user_input)
         answer_history = self._load_memory_messages(self.answer_memory_messages)
+        answer_context = self._build_answer_context(
+            tool_context=context,
+            long_term_memory_context=long_term_memory_context,
+            long_term_memory_write=long_term_memory_write,
+        )
         chunks: list[str] = []
-        for chunk in self.answer_chain.stream(self._build_answer_input(user_input, context, answer_history)):
+        for chunk in self.answer_chain.stream(self._build_answer_input(user_input, answer_context, answer_history)):
             chunks.append(chunk)
             yield chunk
 
         self._remember_exchange(user_input, "".join(chunks))
+
+    def remember_preference(
+        self,
+        content: str,
+        category: str = "preference",
+        source: str = "manual",
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Persist one user preference into long-term personal memory."""
+        if self.long_term_memory is None:
+            raise ValueError("long_term_memory is not configured.")
+
+        return self.long_term_memory.add_memory(
+            content=content,
+            user_id=self.user_id,
+            category=category,
+            source=source,
+            metadata=metadata,
+        )
+
+    def clear_long_term_memory(self) -> int:
+        """Clear long-term personal memory for the current user."""
+        if self.long_term_memory is None:
+            return 0
+
+        return self.long_term_memory.clear(user_id=self.user_id)
 
     def _validate_user_input(self, user_input: str) -> None:
         if not isinstance(user_input, str) or not user_input.strip():
@@ -172,6 +240,27 @@ class CoderAgent:
             answer_input["context"] = context
 
         return answer_input
+
+    def _build_answer_context(
+        self,
+        tool_context: str,
+        long_term_memory_context: str,
+        long_term_memory_write: str,
+    ) -> str:
+        blocks = []
+        if long_term_memory_write:
+            blocks.extend(
+                [
+                    "长期个人记忆写入结果：",
+                    long_term_memory_write,
+                ]
+            )
+        if long_term_memory_context:
+            blocks.append(long_term_memory_context)
+        if tool_context:
+            blocks.append(tool_context)
+
+        return "\n\n".join(blocks)
 
     def _build_routing_input(
         self,
@@ -233,6 +322,57 @@ class CoderAgent:
             return []
 
         return self.memory.load_recent_chat_messages(session_id=self.session_id, limit=limit)
+
+    def _render_long_term_memory_context(self, user_input: str) -> str:
+        if self.long_term_memory is None or self.long_term_memory_k <= 0:
+            return ""
+
+        try:
+            return self.long_term_memory.render_relevant(
+                query=user_input,
+                user_id=self.user_id,
+                k=self.long_term_memory_k,
+            )
+        except Exception:
+            return ""
+
+    def _maybe_store_long_term_memory(self, user_input: str) -> str:
+        if not self.auto_save_long_term_memory or self.long_term_memory is None:
+            return ""
+
+        memory_content = self._extract_preference_memory(user_input)
+        if not memory_content:
+            return ""
+
+        try:
+            memory_id = self.remember_preference(
+                memory_content,
+                category="preference",
+                source="conversation",
+                metadata={"session_id": self.session_id},
+            )
+        except Exception as exc:
+            return f"写入失败：{type(exc).__name__}: {exc}"
+
+        return "\n".join(
+            [
+                f"已保存用户长期偏好：{memory_content}",
+                f"memory_id: {memory_id}",
+            ]
+        )
+
+    def _extract_preference_memory(self, user_input: str) -> str:
+        text = user_input.strip()
+        if not any(trigger in text for trigger in LONG_TERM_MEMORY_TRIGGERS):
+            return ""
+
+        cleaned = text
+        for prefix in ("请记住", "记住"):
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):].strip(" ：:，,。")
+                break
+
+        return cleaned or text
 
     def _remember_exchange(self, user_input: str, answer: str) -> None:
         if self.memory is None:
@@ -408,31 +548,29 @@ class CoderAgent:
 def get_coder_agent(
     model: Any | None = None,
     temperature: float = 0.2,
-    answer_chain: Runnable | None = None,
     max_tool_rounds: int = 3,
-    memory: SQLiteShortTermMemory | None = None,
     session_id: str = "default",
-    answer_memory_messages: int | None = None,
+    user_id: str = "default",
     routing_memory_messages: int = 4,
 ) -> CoderAgent:
-    """Create the main coder agent with one shared model client."""
+    """Create the main coder agent with default chains and memory."""
     if model is None:
         from src.models import get_ali_model_client
 
         model = get_ali_model_client(temperature=temperature)
 
     routing_agent = get_tool_routing_agent(model=model)
-    if answer_chain is None:
-        answer_chain = get_answer_chain(model=model)
-    if memory is None:
-        memory = SQLiteShortTermMemory()
+    answer_chain = get_answer_chain(model=model)
+    memory = SQLiteShortTermMemory()
+    long_term_memory = ChromaLongTermMemory()
 
     return CoderAgent(
         routing_agent=routing_agent,
         answer_chain=answer_chain,
         max_tool_rounds=max_tool_rounds,
         memory=memory,
+        long_term_memory=long_term_memory,
         session_id=session_id,
-        answer_memory_messages=answer_memory_messages,
+        user_id=user_id,
         routing_memory_messages=routing_memory_messages,
     )

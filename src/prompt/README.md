@@ -90,7 +90,7 @@ human:
 - 可直接和模型通过 LCEL 组合：`prompt | model`。
 - 适合测试模型是否能按照系统提示词回答。
 - `history` 是可选的 LangChain message 列表；SQLite 短期记忆可通过 `load_recent_chat_messages()` 转换后传入。
-- `context` 默认为空；工具执行后的结果、检索片段或缺少参数说明可以通过 `context` 传入。
+- `context` 默认为空；工具执行后的结果、检索片段、缺少参数说明或长期个人记忆可以通过 `context` 传入。
 
 ### TOOL_ROUTING_PROMPT
 

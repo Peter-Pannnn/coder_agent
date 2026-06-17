@@ -17,10 +17,13 @@ from .tool_routing_agent import (
     parse_tool_routing_decision,
 )
 from src.memory import SQLiteShortTermMemory, ShortTermMemoryMessage
+from src.memory import ChromaLongTermMemory, LongTermMemoryRecord
 
 __all__ = [
+    "ChromaLongTermMemory",
     "CoderAgent",
     "CoderAgentResult",
+    "LongTermMemoryRecord",
     "ToolCallDecision",
     "ToolExecutionNotImplementedError",
     "ToolExecutionResult",

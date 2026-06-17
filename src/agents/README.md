@@ -68,13 +68,24 @@ agent = get_coder_agent(temperature=0.1, max_tool_rounds=4)
 
 `get_coder_agent()` 会创建一个模型 client，并将同一个 client 同时传给主回答链和 `ToolRoutingAgent`。
 
+`get_coder_agent()` 只暴露常用参数：
+
+- `model`: 可选的模型 client；不传时根据 `temperature` 创建默认模型。
+- `temperature`: 默认 `0.2`。
+- `max_tool_rounds`: 默认 `3`。
+- `session_id`: 短期记忆会话 ID。
+- `user_id`: 长期个人记忆用户 ID。
+- `routing_memory_messages`: 路由 Agent 读取的最近短期记忆条数，默认 `4`。
+
+回答链、SQLite 短期记忆、Chroma 长期个人记忆、最终回答读取全部历史、长期记忆检索 4 条、自动保存明确偏好等配置都在函数内部使用默认值。
+
 回答链由 `answer_chain.py` 中的 `get_answer_chain()` 构建，默认结构为：
 
 ```text
 get_chat_prompt() | model | StrOutputParser()
 ```
 
-`get_chat_prompt()` 会接收 `input`、可选 `context` 和通过 `MessagesPlaceholder` 注入的 `history`。没有工具结果时 `context` 为空；工具执行完成后，`CoderAgent` 会将路由原因、工具入参、工具输出或工具错误写入 `context`，再交给回答链生成最终答案。
+`get_chat_prompt()` 会接收 `input`、可选 `context` 和通过 `MessagesPlaceholder` 注入的 `history`。没有工具结果时 `context` 为空；工具执行完成后，`CoderAgent` 会将路由原因、工具入参、工具输出或工具错误写入 `context`，再交给回答链生成最终答案。若启用了长期个人记忆，相关用户偏好也会写入 `context`。
 
 `CoderAgent` 本身只接收已经构建好的 `answer_chain`，不负责拼接 prompt、model 和 parser。
 
@@ -103,20 +114,56 @@ from src.agents import get_coder_agent
 
 agent = get_coder_agent(
     session_id="demo",
-    answer_memory_messages=None,
     routing_memory_messages=4,
 )
 ```
 
-`answer_memory_messages=None` 表示最终回答链读取全部历史；传入整数时则只读取最近 N 条。
+最终回答链默认读取该 session 的全部历史；路由 Agent 默认读取最近 4 条历史，可以通过 `routing_memory_messages` 调整。
 
-如果需要指定数据库路径：
+## Chroma 长期个人记忆
+
+`get_coder_agent()` 默认会创建 `ChromaLongTermMemory`，把用户偏好和长期协作约定持久化到：
+
+```text
+src/storage/long_term_memory
+```
+
+长期个人记忆按 `user_id` 隔离；短期对话按 `session_id` 隔离。换句话说，用户可以开启新的 session，但继续复用同一个 `user_id` 下的长期偏好。
+
+默认行为：
+
+- 每次回答前，主 Agent 会根据当前问题检索最近相关的长期个人记忆。
+- 检索到的记忆会注入回答 prompt 的 `context`，只用于回答风格、默认偏好和协作习惯。
+- 当用户明确说出“请记住”“记住”“以后默认”“我的偏好”等表达时，主 Agent 会自动把这句话写入长期个人记忆。
+
+手动写入偏好：
 
 ```python
-from src.agents import SQLiteShortTermMemory, get_coder_agent
+from src.agents import get_coder_agent
 
-memory = SQLiteShortTermMemory("src/storage/demo_memory.sqlite3")
-agent = get_coder_agent(memory=memory, session_id="demo")
+agent = get_coder_agent(user_id="peter")
+memory_id = agent.remember_preference("用户偏好：回答时先给结论，再给简短原因。")
+print(memory_id)
+```
+
+清除当前用户的长期记忆：
+
+```python
+agent.clear_long_term_memory()
+```
+
+如果要关闭长期记忆：
+
+```python
+from src.agents import CoderAgent, get_answer_chain, get_tool_routing_agent
+from src.models import get_ali_model_client
+
+model = get_ali_model_client(temperature=0.2)
+agent = CoderAgent(
+    routing_agent=get_tool_routing_agent(model=model),
+    answer_chain=get_answer_chain(model=model),
+    long_term_memory=None,
+)
 ```
 
 ## ToolRoutingAgent

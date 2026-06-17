@@ -9,18 +9,26 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MEMORY_DB_PATH = PROJECT_ROOT / "src" / "storage" / "short_term_memory.sqlite3"
+DEFAULT_LONG_TERM_MEMORY_DIRECTORY = PROJECT_ROOT / "src" / "storage" / "long_term_memory"
 MEMORY_TABLE = "short_term_memory_messages"
+LONG_TERM_MEMORY_COLLECTION = "personal_memory"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Clear all CoderAgent short-term memory records.",
+        description="Clear CoderAgent short-term and long-term memory records.",
     )
     parser.add_argument(
         "--db-path",
         type=Path,
         default=DEFAULT_MEMORY_DB_PATH,
         help=f"SQLite memory database path. Default: {DEFAULT_MEMORY_DB_PATH}",
+    )
+    parser.add_argument(
+        "--long-term-path",
+        type=Path,
+        default=DEFAULT_LONG_TERM_MEMORY_DIRECTORY,
+        help=f"Chroma long-term memory directory. Default: {DEFAULT_LONG_TERM_MEMORY_DIRECTORY}",
     )
     return parser.parse_args()
 
@@ -56,9 +64,34 @@ def clear_all_memory(db_path: Path) -> int:
     return deleted_count
 
 
+def clear_long_term_memory(persist_directory: Path) -> int:
+    if not persist_directory.exists():
+        print(f"[skip] long-term memory directory does not exist: {persist_directory}")
+        return 0
+
+    try:
+        import chromadb
+    except ModuleNotFoundError:
+        print("[skip] clearing long-term memory requires chromadb")
+        return 0
+
+    client = chromadb.PersistentClient(path=str(persist_directory))
+    try:
+        collection = client.get_collection(LONG_TERM_MEMORY_COLLECTION)
+    except Exception:
+        print(f"[skip] long-term memory collection does not exist: {LONG_TERM_MEMORY_COLLECTION}")
+        return 0
+
+    deleted_count = int(collection.count())
+    client.delete_collection(LONG_TERM_MEMORY_COLLECTION)
+    print(f"Cleared {deleted_count} long-term memory record(s) from {persist_directory}")
+    return deleted_count
+
+
 def main() -> None:
     args = parse_args()
     clear_all_memory(args.db_path.resolve())
+    clear_long_term_memory(args.long_term_path.resolve())
 
 
 if __name__ == "__main__":
