@@ -1,6 +1,10 @@
 """LangChain system prompt for the coder agent."""
 
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+)
 
 SYSTEM_PROMPT = """
 你是 CoderAgent，一个面向本地代码仓库的智能开发助手。
@@ -84,13 +88,11 @@ def get_chat_prompt() -> ChatPromptTemplate:
     return ChatPromptTemplate.from_messages(
         [
             get_system_message_prompt(),
+            MessagesPlaceholder(variable_name="history", optional=True),
             (
                 "human",
                 "\n".join(
                     [
-                        "## 历史对话",
-                        "{history}",
-                        "",
                         "## 上下文",
                         "{context}",
                         "",
@@ -100,7 +102,7 @@ def get_chat_prompt() -> ChatPromptTemplate:
                 ),
             ),
         ]
-    ).partial(context="", history="")
+    ).partial(context="")
 
 
 

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+
 
 DEFAULT_SHORT_TERM_MEMORY_DB_PATH = Path("src/storage/short_term_memory.sqlite3")
 
@@ -95,6 +97,15 @@ class SQLiteShortTermMemory:
         messages = self.load_recent(session_id=session_id, limit=limit)
         return "\n".join(f"{message.role}: {message.content}" for message in messages)
 
+    def load_recent_chat_messages(
+        self,
+        session_id: str,
+        limit: int | None = 8,
+    ) -> list[BaseMessage]:
+        """Load recent messages as LangChain chat messages."""
+        messages = self.load_recent(session_id=session_id, limit=limit)
+        return [self._to_chat_message(message) for message in messages]
+
     def clear(self, session_id: str) -> None:
         """Delete all messages for one session."""
         connection = self._connect()
@@ -109,6 +120,14 @@ class SQLiteShortTermMemory:
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path)
+
+    def _to_chat_message(self, message: ShortTermMemoryMessage) -> BaseMessage:
+        if message.role == "user":
+            return HumanMessage(content=message.content)
+        if message.role == "assistant":
+            return AIMessage(content=message.content)
+
+        raise ValueError(f"Unsupported memory role: {message.role}")
 
     def _ensure_schema(self) -> None:
         connection = self._connect()

@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from langchain_core.messages import BaseMessage
 from langchain_core.runnables import Runnable
 
 from src.memory import SQLiteShortTermMemory
@@ -88,7 +89,7 @@ class CoderAgent:
         """Route the request, run tools when needed, and return the final answer."""
         self._validate_user_input(user_input)
 
-        answer_history = self._render_memory(self.answer_memory_messages)
+        answer_history = self._load_memory_messages(self.answer_memory_messages)
         routing_decisions, context, tool_results = self._route_until_ready(user_input)
         answer = self.answer_chain.invoke(self._build_answer_input(user_input, context, answer_history))
         self._remember_exchange(user_input, answer)
@@ -105,7 +106,7 @@ class CoderAgent:
         self._validate_user_input(user_input)
 
         _, context, _ = self._route_until_ready(user_input)
-        answer_history = self._render_memory(self.answer_memory_messages)
+        answer_history = self._load_memory_messages(self.answer_memory_messages)
         chunks: list[str] = []
         for chunk in self.answer_chain.stream(self._build_answer_input(user_input, context, answer_history)):
             chunks.append(chunk)
@@ -162,9 +163,9 @@ class CoderAgent:
         self,
         user_input: str,
         context: str,
-        history: str,
-    ) -> dict[str, str]:
-        answer_input = {"input": user_input}
+        history: list[BaseMessage],
+    ) -> dict[str, Any]:
+        answer_input: dict[str, Any] = {"input": user_input}
         if history:
             answer_input["history"] = history
         if context:
@@ -224,6 +225,14 @@ class CoderAgent:
             return ""
 
         return self.memory.render_recent(session_id=self.session_id, limit=limit)
+
+    def _load_memory_messages(self, limit: int | None) -> list[BaseMessage]:
+        if self.memory is None:
+            return []
+        if limit is not None and limit <= 0:
+            return []
+
+        return self.memory.load_recent_chat_messages(session_id=self.session_id, limit=limit)
 
     def _remember_exchange(self, user_input: str, answer: str) -> None:
         if self.memory is None:

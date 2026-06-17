@@ -75,10 +75,8 @@ from src.prompt import (
 
 ```text
 system: SYSTEM_PROMPT
+history: MessagesPlaceholder("history", optional=True)
 human:
-  ## 历史对话
-  {history}
-
   ## 上下文
   {context}
 
@@ -91,7 +89,7 @@ human:
 - 快速构建最小可用的模型调用链。
 - 可直接和模型通过 LCEL 组合：`prompt | model`。
 - 适合测试模型是否能按照系统提示词回答。
-- `history` 默认为空；SQLite 短期记忆渲染后的历史对话可以通过 `history` 传入。
+- `history` 是可选的 LangChain message 列表；SQLite 短期记忆可通过 `load_recent_chat_messages()` 转换后传入。
 - `context` 默认为空；工具执行后的结果、检索片段或缺少参数说明可以通过 `context` 传入。
 
 ### TOOL_ROUTING_PROMPT
@@ -144,10 +142,15 @@ print(response.content)
 带上下文示例：
 
 ```python
+from langchain_core.messages import AIMessage, HumanMessage
+
 response = chain.invoke(
     {
         "input": "这个文件是干什么的？",
-        "history": "user: tests 文件夹是干什么的？\nassistant: tests 目录用于存放测试。",
+        "history": [
+            HumanMessage(content="tests 文件夹是干什么的？"),
+            AIMessage(content="tests 目录用于存放测试。"),
+        ],
         "context": "工具执行结果：read_file 返回了 src/agents/main_agent.py 的内容。",
     }
 )

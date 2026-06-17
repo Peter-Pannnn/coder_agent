@@ -1,11 +1,15 @@
 import sys
 import tempfile
-from importlib.util import module_from_spec, spec_from_file_location
+from importlib.util import find_spec, module_from_spec, spec_from_file_location
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+if find_spec("langchain_core") is None:
+    print("[skip] memory tests require langchain_core")
+    raise SystemExit(0)
 
 MEMORY_MODULE_PATH = PROJECT_ROOT / "src" / "memory" / "short_term_memory.py"
 spec = spec_from_file_location("coder_agent_short_term_memory", MEMORY_MODULE_PATH)
@@ -42,6 +46,10 @@ def test_sqlite_short_term_memory_persists_recent_messages() -> None:
 
         if memory.render_recent("session-b", limit=4) != "user: other session":
             raise AssertionError("Expected memory to be isolated by session_id.")
+
+        chat_messages = memory.load_recent_chat_messages("session-a", limit=2)
+        if [message.type for message in chat_messages] != ["ai", "human"]:
+            raise AssertionError("Expected memory to convert to LangChain chat messages.")
 
 
 def main() -> None:

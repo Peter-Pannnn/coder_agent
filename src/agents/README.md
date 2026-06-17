@@ -74,7 +74,7 @@ agent = get_coder_agent(temperature=0.1, max_tool_rounds=4)
 get_chat_prompt() | model | StrOutputParser()
 ```
 
-`get_chat_prompt()` 会接收 `input` 和可选 `context`。没有工具结果时 `context` 为空；工具执行完成后，`CoderAgent` 会将路由原因、工具入参、工具输出或工具错误写入 `context`，再交给回答链生成最终答案。
+`get_chat_prompt()` 会接收 `input`、可选 `context` 和通过 `MessagesPlaceholder` 注入的 `history`。没有工具结果时 `context` 为空；工具执行完成后，`CoderAgent` 会将路由原因、工具入参、工具输出或工具错误写入 `context`，再交给回答链生成最终答案。
 
 `CoderAgent` 本身只接收已经构建好的 `answer_chain`，不负责拼接 prompt、model 和 parser。
 
@@ -93,6 +93,8 @@ src/storage/short_term_memory.sqlite3
 - 最终回答链默认读取该 session 的全部历史消息。
 - 路由 Agent 读取最近 4 条历史消息，用于理解“继续”“这个文件”等指代。
 - 每次 `run()` 或 `stream()` 完成后，会追加一条用户消息和一条助手消息。
+
+最终回答链使用 `SQLiteShortTermMemory.load_recent_chat_messages()` 将历史转换成 LangChain 的 `HumanMessage` / `AIMessage`，再通过 `MessagesPlaceholder("history")` 注入 prompt。路由 Agent 仍使用渲染后的短文本历史作为路由判断输入。
 
 可以通过参数调整：
 
